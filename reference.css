@@ -38,6 +38,9 @@ tbody tr:nth-child(even) { background: #fbfcfd; }
 
 .build-timestamp { text-align: center; font-size: 7pt; color: #687786; margin: -1.5mm 0 3mm; break-before: avoid; break-after: avoid; }
 
+.ai-note { text-align: center; font-size: 8pt; color: #687786; margin: 0 0 3mm; }
+.ai-note p { margin: 0; }
+
 .table-of-contents { break-after: page; }
 .table-of-contents > p { font-size: 12pt; color: #287eb5; margin: 5mm 0 3mm; }
 .table-of-contents ul { list-style: none; padding: 0; margin: 0; }
