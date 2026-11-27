@@ -22,10 +22,13 @@ IT_DIR="$(mktemp -d)"
 trap 'rm -rf "$IT_DIR"' EXIT
 python3 "$ROOT/scripts/build-site.py" "$OUTDIR" "$VERSION" "$BUILT_DATE" "$IT_DIR"
 
+V="$(cat "$OUTDIR/.asset-v")"
+rm -f "$OUTDIR/.asset-v"
+
 # Full-text search index (Pagefind). Optional: without it the search box is hidden.
 if command -v npx >/dev/null 2>&1; then
-  npx --yes pagefind@1.3.0 --site "$OUTDIR" --force-language ru \
-    && npx --yes pagefind@1.3.0 --site "$IT_DIR" --output-path "$OUTDIR/pagefind-it" --force-language it \
+  npx --yes pagefind@1.3.0 --site "$OUTDIR" --output-path "$OUTDIR/pagefind-$V" --force-language ru \
+    && npx --yes pagefind@1.3.0 --site "$IT_DIR" --output-path "$OUTDIR/pagefind-it-$V" --force-language it \
     || echo "Pagefind failed; the site works without search." >&2
 else
   echo "npx not found; skipping the search index." >&2

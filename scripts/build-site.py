@@ -71,8 +71,9 @@ def page_name(n: int) -> str:
 
 
 # Content hash for cache busting: GitHub Pages sends max-age=600 and no way to change it,
-# so assets are linked with ?v=<hash> and a changed file is fetched at once.
-ASSET_V = hashlib.sha1((ROOT / "site.css").read_bytes()).hexdigest()[:8]
+# so the stylesheet is linked with ?v=<hash> and the search bundles live in
+# pagefind-<hash>/ and pagefind-it-<hash>/ (build-site.sh reads the hash from .asset-v).
+ASSET_V = hashlib.sha1(b"".join((ROOT / f).read_bytes() for f in ("site.css", "reference.md", "scripts/build-site.py"))).hexdigest()[:8]
 
 HEAD = read("site-head.html")
 THEME = read("site-theme.html")
@@ -125,14 +126,14 @@ def sidebar(sections, current: int | None) -> str:
 
 VERSION_V = ASSET_V
 
-PF_OPTS = """{ element: '#search', mergeIndex: [{ bundlePath: new URL('pagefind-it/', document.baseURI).pathname, language: 'it' }], showImages: false, showSubResults: true, resetStyles: false,
+PF_OPTS = """{ element: '#search', mergeIndex: [{ bundlePath: new URL('pagefind-it-@V@/', document.baseURI).pathname, language: 'it' }], showImages: false, showSubResults: true, resetStyles: false,
       translations: { placeholder: 'Поиск', clear_search: 'Очистить', load_more: 'Ещё результаты',
         search_label: 'Поиск по справочнику', filters_label: 'Фильтры', zero_results: 'Ничего не найдено: [SEARCH_TERM]',
         many_results: '[COUNT] результатов: [SEARCH_TERM]', one_result: '[COUNT] результат: [SEARCH_TERM]',
         alt_search: 'Ничего не найдено по [SEARCH_TERM]. Показаны результаты по [DIFFERENT_TERM]',
         search_suggestion: 'Ничего не найдено по [SEARCH_TERM]. Попробуйте:', searching: 'Ищу [SEARCH_TERM]…' } }"""
 
-SIDE_JS = """<script src="pagefind/pagefind-ui.js?v=@V@" onerror="void 0"></script>
+SIDE_JS = """<script src="pagefind-@V@/pagefind-ui.js" onerror="void 0"></script>
 <script>
 (function () {
   var b = document.body;
@@ -157,7 +158,7 @@ SIDE_JS = """<script src="pagefind/pagefind-ui.js?v=@V@" onerror="void 0"></scri
 })();
 </script>""".replace("@OPTS@", PF_OPTS).replace("@V@", VERSION_V)
 
-ALL_JS = """<script src="pagefind/pagefind-ui.js?v=@V@" onerror="void 0"></script>
+ALL_JS = """<script src="pagefind-@V@/pagefind-ui.js" onerror="void 0"></script>
 <script>
 (function () {
   var map = @MAP@;
@@ -294,7 +295,7 @@ def main() -> None:
         if not m or f'id="{m.group(1)}"' not in whole:
             raise SystemExit(f"No heading id for section {n}")
         sec_ids[page_name(n)] = m.group(1)
-    all_js = ALL_JS.replace("@V@", VERSION_V).replace("@MAP@", json.dumps(sec_ids, ensure_ascii=False)).replace("@OPTS@", PF_OPTS)
+    all_js = ALL_JS.replace("@MAP@", json.dumps(sec_ids, ensure_ascii=False)).replace("@OPTS@", PF_OPTS).replace("@V@", VERSION_V)
     body = f"""{THEME}
 <p class="crumbs noprint"><a href="./">← На главную</a></p>
 <div class="noprint all-search"><div id="search"></div></div>
@@ -302,6 +303,7 @@ def main() -> None:
 {whole}"""
     (OUT / "all.html").write_text(
         document(f"{SITE_TITLE} (одной страницей)", body, "all-page"), encoding="utf-8")
+    (OUT / ".asset-v").write_text(ASSET_V)
     print(f"Created {len(sections)} section pages, index.html and all.html in {OUT}")
 
 
