@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Build the multi-page site: start page, one page per section, and all.html."""
 import html
+import json
 import os
 import re
 import subprocess
@@ -107,7 +108,7 @@ def grouped_list(sections, current: int | None, cls: str) -> str:
 def sidebar(sections, current: int | None) -> str:
     return f"""<nav id="sidebar" aria-label="Оглавление">
 <div class="side-top">
-<a href="index.html"{' aria-current="page"' if current is None else ''}>Начало</a>
+<a href="./"{' aria-current="page"' if current is None else ''}>Начало</a>
 <a href="all.html">Одной страницей</a>
 </div>
 <div id="search"></div>
@@ -117,28 +118,74 @@ def sidebar(sections, current: int | None) -> str:
 </nav>"""
 
 
+PF_OPTS = """{ element: '#search', mergeIndex: [{ bundlePath: new URL('pagefind-it/', document.baseURI).pathname, language: 'it' }], showImages: false, showSubResults: true, resetStyles: false,
+      translations: { placeholder: 'Поиск', clear_search: 'Очистить', load_more: 'Ещё результаты',
+        search_label: 'Поиск по справочнику', filters_label: 'Фильтры', zero_results: 'Ничего не найдено: [SEARCH_TERM]',
+        many_results: '[COUNT] результатов: [SEARCH_TERM]', one_result: '[COUNT] результат: [SEARCH_TERM]',
+        alt_search: 'Ничего не найдено по [SEARCH_TERM]. Показаны результаты по [DIFFERENT_TERM]',
+        search_suggestion: 'Ничего не найдено по [SEARCH_TERM]. Попробуйте:', searching: 'Ищу [SEARCH_TERM]…' } }"""
+
 SIDE_JS = """<script src="pagefind/pagefind-ui.js" onerror="void 0"></script>
 <script>
 (function () {
   var b = document.body;
   var btn = document.querySelector('.menu-btn');
-  btn.addEventListener('click', function () { b.classList.toggle('nav-open'); });
-  document.querySelector('.scrim').addEventListener('click', function () { b.classList.remove('nav-open'); });
+  var scrim = document.querySelector('.scrim');
+  if (btn) btn.addEventListener('click', function () { b.classList.toggle('nav-open'); });
+  if (scrim) scrim.addEventListener('click', function () { b.classList.remove('nav-open'); });
   var cur = document.querySelector('#sidebar [aria-current="page"]');
-  var side = document.getElementById('sidebar');
+  var side = document.getElementById('sidebar') || document.querySelector('.start');
   var sc = document.querySelector('.toc-scroll');
-  if (cur && cur.closest('.toc-list')) sc.scrollTop = Math.max(0, cur.offsetTop - sc.clientHeight / 3);
+  if (cur && sc && cur.closest('.toc-list')) sc.scrollTop = Math.max(0, cur.offsetTop - sc.clientHeight / 3);
   if (window.PagefindUI) {
-    new PagefindUI({ element: '#search', mergeIndex: [{ bundlePath: new URL('pagefind-it/', document.baseURI).pathname, language: 'it' }], showImages: false, showSubResults: true, resetStyles: false,
-      translations: { placeholder: 'Поиск', clear_search: 'Очистить', load_more: 'Ещё результаты',
-        search_label: 'Поиск по справочнику', filters_label: 'Фильтры', zero_results: 'Ничего не найдено: [SEARCH_TERM]',
-        many_results: '[COUNT] результатов: [SEARCH_TERM]', one_result: '[COUNT] результат: [SEARCH_TERM]',
-        alt_search: 'Ничего не найдено по [SEARCH_TERM]. Показаны результаты по [DIFFERENT_TERM]',
-        search_suggestion: 'Ничего не найдено по [SEARCH_TERM]. Попробуйте:', searching: 'Ищу [SEARCH_TERM]…' } });
-    var inp = document.querySelector('#search input');
-    if (inp) inp.addEventListener('input', function () { side.classList.toggle('searching', inp.value.trim() !== ''); });
+    new PagefindUI(@OPTS@);
+    var box = document.getElementById('search');
+    var inp = box && box.querySelector('input');
+    function upd() { if (side && inp) side.classList.toggle('searching', inp.value.trim() !== ''); }
+    if (inp) inp.addEventListener('input', upd);
+    if (box) box.addEventListener('click', function () { setTimeout(upd, 0); });
   } else {
     var s = document.getElementById('search'); if (s) s.remove();
+  }
+})();
+</script>""".replace("@OPTS@", PF_OPTS)
+
+ALL_JS = """<script src="pagefind/pagefind-ui.js" onerror="void 0"></script>
+<script>
+(function () {
+  var map = @MAP@;
+  function fix(u) {
+    var m = /([^\/#?]+\.html)(#.*)?$/.exec(u || '');
+    if (!m) return u;
+    var frag = m[2] && m[2].length > 1 ? m[2].slice(1) : map[m[1]];
+    return frag ? 'all.html#' + frag : 'all.html';
+  }
+  if (window.PagefindUI) {
+    var opts = @OPTS@;
+    opts.processResult = function (r) {
+      r.url = fix(r.url);
+      (r.sub_results || []).forEach(function (x) { x.url = fix(x.url); });
+      return r;
+    };
+    new PagefindUI(opts);
+    var wrap = document.querySelector('.all-search');
+    var pane = document.getElementById('search');
+    var saved = 0;
+    function collapse() {
+      if (!wrap.classList.contains('collapsed')) { saved = pane.scrollTop; wrap.classList.add('collapsed'); }
+    }
+    function expand(top) { wrap.classList.remove('collapsed'); pane.scrollTop = top; }
+    document.addEventListener('click', function (e) {
+      var t = e.target;
+      if (t.closest('.pagefind-ui__search-clear') && wrap.contains(t)) { expand(0); return; }
+      if (!wrap.contains(t) || t.closest('.pagefind-ui__result-link')) collapse();
+    });
+    wrap.addEventListener('focusin', function (e) {
+      if (e.target.matches('input') && wrap.classList.contains('collapsed')) expand(saved);
+    });
+    wrap.addEventListener('input', function () { expand(0); });
+  } else {
+    var s = document.querySelector('.all-search'); if (s) s.remove();
   }
 })();
 </script>"""
@@ -159,7 +206,7 @@ def section_page(sections, idx: int, fragment: str) -> str:
 <div class="layout">
 {sidebar(sections, n)}
 <main data-pagefind-body>
-<p class="crumbs"><a href="index.html">{SHORT_TITLE}</a> · {html.escape(part)}</p>
+<p class="crumbs"><a href="./">{SHORT_TITLE}</a> · {html.escape(part)}</p>
 {fragment}
 <nav class="pager" aria-label="Соседние разделы">{prev_link}{next_link}</nav>
 </main>
@@ -168,12 +215,21 @@ def section_page(sections, idx: int, fragment: str) -> str:
     return document(f"{n}. {heading} — {SHORT_TITLE}", body, "paged")
 
 
+def ensure_ids(frag: str) -> str:
+    """Give every numbered <h2> without an id the id sec-N."""
+    def fix(m):
+        if "id=" in m.group(1):
+            return m.group(0)
+        return f'<h2 id="sec-{m.group(2)}"{m.group(1)}>{m.group(2)}.'
+    return re.sub(r"<h2([^>]*)>(\d+)\.", fix, frag)
+
+
 def main() -> None:
     text = read("reference.md")
     _title_block, sections = split_sections(text)
     OUT.mkdir(parents=True, exist_ok=True)
 
-    fragments = [pandoc(md) for _, _, _, md in sections]
+    fragments = [ensure_ids(pandoc(md)) for _, _, _, md in sections]
 
     # ids -> page, to retarget cross-section links
     id_page: dict[str, str] = {}
@@ -216,15 +272,26 @@ def main() -> None:
 <div class="start">
 <h1>{SHORT_TITLE}<span class="subtitle">Грамматика и живая речь</span></h1>
 {header}
+<div id="search"></div>
+{SIDE_JS}
 <h2 class="start-toc">Разделы</h2>
 {toc}
 </div>"""
     (OUT / "index.html").write_text(document(SITE_TITLE, body, "start-page"), encoding="utf-8")
 
     # everything on one page
-    whole = pandoc(text, lua=True)
+    whole = ensure_ids(pandoc(text, lua=True))
+    sec_ids = {}
+    for (_, n, _, _), frag in zip(sections, fragments):
+        m = re.search(r'<h2[^>]*\bid="([^"]+)"', frag)
+        if not m or f'id="{m.group(1)}"' not in whole:
+            raise SystemExit(f"No heading id for section {n}")
+        sec_ids[page_name(n)] = m.group(1)
+    all_js = ALL_JS.replace("@MAP@", json.dumps(sec_ids, ensure_ascii=False)).replace("@OPTS@", PF_OPTS)
     body = f"""{THEME}
-<p class="crumbs noprint"><a href="index.html">← На главную</a></p>
+<p class="crumbs noprint"><a href="./">← На главную</a></p>
+<div class="noprint all-search"><div id="search"></div></div>
+{all_js}
 {whole}"""
     (OUT / "all.html").write_text(
         document(f"{SITE_TITLE} (одной страницей)", body, "all-page"), encoding="utf-8")
